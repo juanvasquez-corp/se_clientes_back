@@ -17,7 +17,7 @@ redis_client = redis.from_url(settings.REDIS_URL, decode_response=True)
 
 async def get_db():
     
-    #Aislar sesión por petición
+    # Aislar sesión por petición
     async with asynnc_session() as session:
         try:
             yield session
