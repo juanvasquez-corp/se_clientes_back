@@ -7,7 +7,7 @@ class UserRegister(BaseModel):
     name: str
     last_name: str
     email: EmailStr
-    password: str
+    psswd: str
     rol: str = "user"
 
 class UserResponse(BaseModel):
@@ -25,4 +25,4 @@ class UserResponse(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    psswd: str
