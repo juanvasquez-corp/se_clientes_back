@@ -24,6 +24,7 @@ class UserModel(Base):
 
     name = Column(String, nullable=False)
     last_name = Column(String, nullable=True)
+    phone_number = Column(String, nullable=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_psswd = Column(String, nullable=False)
     rol = Column(String, default="user", nullable=False)
