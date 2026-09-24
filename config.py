@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-class Setting(BaseSettings):
-    SECREY_KEY: str
+class Settings(BaseSettings):
+    SECRET_KEY: str
     PEPPER: str
     ENVIRONMENT: str = "production"
     DATABASE_URL: str

@@ -1,4 +1,4 @@
-from uuid import uuid
+from uuid import uuid4
 from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer

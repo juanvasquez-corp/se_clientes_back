@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from database import get_db, redis_client
-from model.user import UserModel
+from models.user import UserModel
 from schemas.user import LoginRequest
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -38,7 +38,7 @@ def create_access_token(user_id: int, email: str, rol: str) -> str:
 
     # Implementación de convención OWASP REST:
     # Inlcusión estrcita de Claims de validación cruzada
-    payload:{
+    payload ={
         "sub": str(user_id),
         "email": email,
         "rol": rol,
@@ -46,7 +46,7 @@ def create_access_token(user_id: int, email: str, rol: str) -> str:
         "aud": settings.JWT_AUDIENCE,
         "exp": expire
     }
-    return jwt.encode(payload, settings.SECREY_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, settings.SECREY_KEY, algorithms=[ALGORITHM])
 
 def create_refresh_token(user_id: int) -> str:
     jti = f"ref_{int(time.time())}_{user_id}"
@@ -82,7 +82,7 @@ async def login(
         )
 
     result = await db.execute(
-        select(UserModel).where(UserMode.email == login_data.email)
+        select(UserModel).where(UserModel.email == login_data.email)
     )
     user = result.scalars().first()
 
@@ -109,7 +109,7 @@ async def login(
         samesite="strict" if es_produccion else "lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
     )
-    return {"acces_token": acces_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/logout")
 async def logout(
@@ -123,7 +123,7 @@ async def logout(
                 settings.SECRET_KEY,
                 audience=settings.JWT_AUDIENCE,
                 issuer=settings.JWT_ISSUER,
-                algorithm:[ALGORITHM]
+                algorithms=[ALGORITHM]
             )
             redis_client.delete(f"refresh_token:{payload.get('jti')}")
         except jwt.PyJWTError:

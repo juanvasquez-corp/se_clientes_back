@@ -30,7 +30,7 @@ async def startup():
                 last_name="system",
                 email="superadmin.system@aliar.com",
                 hashed_psswd=ph.hash(psswd_bytes),
-                phone_number="3050082154"
+                phone_number="3050082154",
                 rol="superadmin"
             )
             session.add(seed_admin)
