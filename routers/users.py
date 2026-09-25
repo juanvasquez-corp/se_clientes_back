@@ -216,7 +216,7 @@ async def get_user_by_uuid(user_uuid: UUID, db: AsyncSession = Depends(get_db)):
     
     return user
 
-@router.put("/{user_uuid}"
+@router.put("/{user_uuid}",
             response_model=UserResponse,
             dependencies=[Depends(RoleChecker(["superadmin"]))])
 async def update_user_profile(

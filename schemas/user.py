@@ -34,7 +34,7 @@ class UserUpdate(BaseModel):
     # Campos que el administrador actualiza sin problema
     name : str = Field(..., min_length=2, max_length=50)
     last_name: str = Field(..., min_length=2, max_length=50)
-    phone_number: str = Filed(..., min_length=7, max_length=15)
+    phone_number: str = Field(..., min_length=7, max_length=15)
     email : EmailStr
 
 class UserStatusUpdate(BaseModel):
