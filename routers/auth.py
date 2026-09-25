@@ -1,3 +1,4 @@
+from uuid import UUID
 from datetime import datetime, timedelta, timezone
 import time
 from typing import Optional
@@ -30,7 +31,7 @@ def verify_password_with_pepper(hashed_psswd: str, plain_psswd: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int, email: str, rol: str) -> str:
+def create_access_token(user_uuid: UUID, email: str, rol: str) -> str:
 
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
@@ -39,16 +40,16 @@ def create_access_token(user_id: int, email: str, rol: str) -> str:
     # Implementación de convención OWASP REST:
     # Inlcusión estrcita de Claims de validación cruzada
     payload ={
-        "sub": str(user_id),
+        "sub": str(user_uuid),
         "email": email,
         "rol": rol,
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
         "exp": expire
     }
-    return jwt.encode(payload, settings.SECREY_KEY, algorithms=[ALGORITHM])
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: int, user_uuid: UUID) -> str:
     jti = f"ref_{int(time.time())}_{user_id}"
     ttl_seconds = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
     redis_client.setex(
@@ -59,7 +60,7 @@ def create_refresh_token(user_id: int) -> str:
 
     payload = {
         "jti": jti,
-        "sub": str(user_id),
+        "sub": str(user_uuid),
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
         "exp": datetime.now(timezone.utc) + timedelta(
@@ -92,8 +93,8 @@ async def login(
             not user.is_active):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
     
-    access_token = create_access_token(user.id, user.email, user.rol)
-    refresh_token = create_refresh_token(user.id)
+    access_token = create_access_token(user.uuid, user.email, user.rol)
+    refresh_token = create_refresh_token(user.id, user.uuid)
 
     es_produccion = settings.ENVIRONMENT == "production"
 

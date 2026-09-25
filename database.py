@@ -12,13 +12,13 @@ async_session = sessionmaker(
 
 Base = declarative_base()
 
-redis_client = redis.from_url(settings.REDIS_URL, decode_response=True)
+redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 
 async def get_db():
     
     # Aislar sesión por petición
-    async with asynnc_session() as session:
+    async with async_session() as session:
         try:
             yield session
         except Exception:

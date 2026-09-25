@@ -7,6 +7,7 @@ class UserRegister(BaseModel):
     name: str
     last_name: str
     email: EmailStr
+    phone_number: str
     psswd: str
     rol: str = "user"
 
@@ -17,8 +18,9 @@ class UserResponse(BaseModel):
     name: str
     last_name: str
     email: EmailStr
+    phone_number: str
     rol: str
-    is_active: Boolean
+    is_active: bool
 
     class Config:
         from_attributes = True

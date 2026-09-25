@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID
 from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -120,7 +120,7 @@ async def delete_user(user_uuid: UUID, db: AsyncSession = Depends(get_db)):
 
     # Eliminar al usuario usando el UUID público
     result = await db.execute(
-        select(UserModel).where(UserMode.uuid == user_uuid)
+        select(UserModel).where(UserModel.uuid == user_uuid)
     )
 
     user = result.scalars().first()
