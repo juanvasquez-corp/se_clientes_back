@@ -1,3 +1,4 @@
+from typing import List
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
 
@@ -28,3 +29,22 @@ class UserResponse(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     psswd: str
+
+class UserUpdate(BaseModel):
+    # Campos que el administrador actualiza sin problema
+    name : str = Field(..., min_length=2, max_length=50)
+    last_name: str = Field(..., min_length=2, max_length=50)
+    phone_number: str = Filed(..., min_length=7, max_length=15)
+    email : EmailStr
+
+class UserStatusUpdate(BaseModel):
+    # Exclusivo para activar o desactivar una cuenta
+    is_active : bool
+
+class PaginatedUserResponse(BaseModel):
+    # Estructura estándarizada para las respuestas paginadas
+    total_records: int
+    current_page: int
+    total_pages: int
+    page_size: int
+    data: List[UserResponse]
