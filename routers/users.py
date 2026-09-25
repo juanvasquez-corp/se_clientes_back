@@ -3,13 +3,20 @@ from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from math import ceil 
 from config import settings
 from database import get_db, redis_client
 from models.user import UserModel
-from schemas.user import UserRegister, UserResponse
+from schemas.user import (
+    UserRegister, 
+    UserResponse, 
+    PaginatedUserResponse,
+    UserStatusUpdate,
+    UserUpdate
+    )
 
 router = APIRouter(prefix="/api/users", tags=["Gestión de Usuarios"])
 
@@ -150,3 +157,146 @@ async def delete_user(user_uuid: UUID, db: AsyncSession = Depends(get_db)):
             redis_client.delete(key)
 
     return {"detail": "Usuario eliminado de forma exitosa"}
+
+
+@router.get("",
+            response_model=PaginatedUserResponse,
+            dependencies=[Depends(RoleChecker(["superadmin"]))])
+async def list_all_users_paginated(
+    page: int = 1,
+    size: int = 10,
+    db: AsyncSession = Depends(get_db)
+):
+    # Convención para listar usuarios con paginación estricta
+    # El objetivo es limitar el tamaño máximo por página.
+
+    # OWASP: Sanitizar parámetros query para avitar abuso de recursos 
+    if page < 1:
+        page = 1
+    if size < 1 or size > 50:
+        size = 10
+    
+    # Consulta para obtener conteo total existente en BD
+    total_stmt = select(func.count()).select_from(UserModel)
+    total_result = await db.execute(total_stmt)
+    total_records = total_result.scalars() or 0
+
+    # Calcular Offset para la paginación en la BD
+    offset_value = (page - 1) * size
+    total_pages = ceil(total_records / size) if total_records > 0 else 1
+
+    # Ejecución de la consulta limitada por rango
+    stmt = select(UserModel).order_by(UserModel.id).offset(offset_value).limit(size)
+    result = await db.execute(stmt)
+    users_list = result.scalars().all()
+
+    return {
+        "total_records" : total_records,
+        "current_page" : page,
+        "total_pages" : total_pages,
+        "page_size" : size,
+        "data" : users_list
+    } 
+
+@router.get("/{user_uuid}",
+            response_model=UserResponse,
+            dependencies=[Depends(RoleChecker(["superadmin"]))])
+async def get_user_by_uuid(user_uuid: UUID, db: AsyncSession = Depends(get_db)):
+    # Usar uuid público para buscar y retornar el perfil del usuario
+
+    stmt = selec(UserModel).where(UserModel.uuid == user_uuid)
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="El usuario que buscas no existe en los registros"
+        )
+    
+    return user
+
+@router.put("/{user_uuid}"
+            response_model=UserResponse,
+            dependencies=[Depends(RoleChecker(["superadmin"]))])
+async def update_user_profile(
+    user_uuid: UUID,
+    update_data: UserUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    # Actualiza la información básica de un usuario.
+    # Se usan conevciones de ciberseguridad para prevenir Mass Assigment
+
+    stmt = select(UserModel).where(UserModel.uuid == user_uuid)
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Validar semántica cruzada para evitar colisión de correos duplicados
+    if update_data.email != user.email:
+        email_check = await db.execute(
+            select(UserModel).where(UserModel.email == update_data.email)
+        )
+        if email_check.scalars().first():
+            raise HTTPException(
+                status_code=400,
+                detail="El nuevo correo electrónico ya está en uso"
+            )
+        
+        # Mapeo controlado de atributos permitidos
+        user.name = update_data.name
+        user.last_name = update_data.last_name
+        user.phone_number = update_data.phone_number
+        user.email = update_data.email
+
+        try:
+            await db.commit()
+            await db.refresh(user)
+            return user
+        except Exception:
+            await db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail="Error transaccional al actualizar el perfil"
+            )
+
+@router.patch("/{user_uuid}/status",
+            dependencies=[Depends(RoleChecker(["superadmin"]))])
+async def toggle_user_activation(
+    user_uuid: UUID,
+    status_data: UserStatusUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    # Activar o desactivar la cuenta de un usuario.
+    # Si se desactiva, purgar inmediatamente sesiones activas en Redis.
+
+    stmt = select(UserModel).where(UserModel.uuid == user_uuid)
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=400,
+            detail="Usuario no encontrado"
+        )
+    
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Error al procesar el cambio de estado"
+        )
+    
+    # Expulsar al usuario del sistema al ser desactivado
+    if not status_data.is_active:
+        target_id = user.id
+        for key in redis_client.scan_iter(match="refresh_token:*"):
+            if redis_client.get(key) == str(target_id):
+                redis_client.delete(key)
+
+    estado_str = "activado" if status_data.is_active else "desactivado"
+    return {"detail" : f"El usuario ha sido {estado_str} exitosamente."}
