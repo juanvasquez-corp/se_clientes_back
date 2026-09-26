@@ -281,6 +281,8 @@ async def toggle_user_activation(
             status_code=400,
             detail="Usuario no encontrado"
         )
+
+    user.is_active = status_data.is_active
     
     try:
         await db.commit()
