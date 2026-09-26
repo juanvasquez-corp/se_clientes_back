@@ -204,7 +204,7 @@ async def list_all_users_paginated(
 async def get_user_by_uuid(user_uuid: UUID, db: AsyncSession = Depends(get_db)):
     # Usar uuid público para buscar y retornar el perfil del usuario
 
-    stmt = selec(UserModel).where(UserModel.uuid == user_uuid)
+    stmt = select(UserModel).where(UserModel.uuid == user_uuid)
     result = await db.execute(stmt)
     user = result.scalars().first()
 
