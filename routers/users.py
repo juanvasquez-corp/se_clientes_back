@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/users", tags=["Gestión de Usuarios"])
 
 ALGORITHM = "HS256"
 
-ph = PasswordHasher(memory_cost=12288, time_cost=3, parallelism=1)
+PH = PasswordHasher(memory_cost=12288, time_cost=3, parallelism=1)
 security_scheme = HTTPBearer()
 
 
@@ -98,7 +98,7 @@ async def create_new_user(
         last_name=user_data.last_name,
         phone_number=user_data.phone_number,
         email=user_data.email,
-        hashed_psswd=ph.hash(psswd_bytes),
+        hashed_psswd=PH.hash(psswd_bytes),
         rol=user_data.rol
     )
     db.add(new_user)

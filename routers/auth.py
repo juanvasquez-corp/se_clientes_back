@@ -18,7 +18,7 @@ ALGORITHM = "HS256"
 
 # Convención OWASP para hasheo de contraseñas
 # 12 MiB - 3 iteraciones - 1 hilo
-ph = PasswordHasher(memory_cost=12288, time_cost=3, parallelism=1)
+PH = PasswordHasher(memory_cost=12288, time_cost=3, parallelism=1)
 
 
 def verify_password_with_pepper(hashed_psswd: str, plain_psswd: str) -> bool:
@@ -26,7 +26,7 @@ def verify_password_with_pepper(hashed_psswd: str, plain_psswd: str) -> bool:
 
         # Conversión de forma segura a bytes UTF-8 combinado con el Pepper oculto
         psswd_bytes = f"{plain_psswd}{settings.PEPPER}".encode("utf-8")
-        return ph.verify(hashed_psswd, psswd_bytes)
+        return PH.verify(hashed_psswd, psswd_bytes)
     except Exception:
         return False
 

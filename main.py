@@ -1,20 +1,19 @@
+from contextlib import asynccontextmanager
+
 from argon2 import PasswordHasher
 from fastapi import FastAPI
+from sqlalchemy import select
+
 from config import settings
 from database import Base, async_session, engine
 from models.user import UserModel
 from routers import auth, users
-from sqlalchemy import select
 
-app = FastAPI(title="Sistema de gestión de usuarios")
-app.include_router(auth.router)
-app.include_router(users.router)
-
-ph = PasswordHasher(memory_cost=12288, time_cost=3, parallelism=1)
+PH = PasswordHasher(memory_cost=12288, time_cost=3, parallelism=1)
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -29,10 +28,19 @@ async def startup():
                 name="admin",
                 last_name="system",
                 email="superadmin.system@aliar.com",
-                hashed_psswd=ph.hash(psswd_bytes),
+                hashed_psswd=PH.hash(psswd_bytes),
                 phone_number="3050082154",
                 rol="superadmin"
             )
             session.add(seed_admin)
             await session.commit()
-            print("superadmin semilla creado exitosamente.")
+            print("superadmin semilla creado exitosamente.", lifespan=lifespan)
+
+    yield
+
+
+app = FastAPI(title="Sistema de gestión de usuarios")
+
+app.include_router(auth.router)
+app.include_router(users.router)
+     
