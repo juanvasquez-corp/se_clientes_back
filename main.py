@@ -34,12 +34,12 @@ async def lifespan(app: FastAPI):
             )
             session.add(seed_admin)
             await session.commit()
-            print("superadmin semilla creado exitosamente.", lifespan=lifespan)
+            print("superadmin semilla creado exitosamente.")
 
     yield
 
 
-app = FastAPI(title="Sistema de gestión de usuarios")
+app = FastAPI(title="Sistema de gestión de usuarios", lifespan=lifespan)
 
 app.include_router(auth.router)
 app.include_router(users.router)
