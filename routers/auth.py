@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import time
 from typing import Optional
 from argon2 import PasswordHasher
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response
+from fastapi import (APIRouter, Cookie, Depends, Header, HTTPException, Response, Request)
 import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,12 +71,15 @@ def create_refresh_token(user_id: int, user_uuid: UUID) -> str:
 
 @router.post("/login")
 async def login(
+    request: Request,
     login_data: LoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    content_type: str = Header(None)
+    
 ):
-    if content_type != "application/json":
+
+    content_type = request.headers.get("content-type", "")
+    if not content_type.startswith("application/json"):
         raise HTTPException(
             status_code=415,
             detail="Se requiere application/json"
@@ -117,20 +120,39 @@ async def logout(
     response: Response,
     refresh_token: Optional[str] = Cookie(None)
 ):
-    if refresh_token:
-        try:
-            payload = jwt.decode(
-                refresh_token,
-                settings.SECRET_KEY,
-                audience=settings.JWT_AUDIENCE,
-                issuer=settings.JWT_ISSUER,
-                algorithms=[ALGORITHM]
+    if not refresh_token:
+        raise HTTPException(
+            status_code=401,
+            detail="No hay ninguna sesión activa para cerrar"
+        )
+
+    try:
+        payload = jwt.decode(
+            refresh_token,
+            settings.SECRET_KEY,
+            audience=settings.JWT_AUDIENCE,
+            issuer=settings.JWT_ISSUER,
+            algorithms=[ALGORITHM]
+        )
+        jti = payload.get("jti")
+        redis_key = f"refresh_token:{jti}"
+
+        # Validar token en Redis
+        if not redis_client.get(redis_key):
+            raise HTTPException(
+                status_code=401,
+                detail="Esta sesión ya había sido finalizada previamente"
             )
-            redis_client.delete(f"refresh_token:{payload.get('jti')}")
-        except jwt.PyJWTError:
-            pass
-        
-        response.delete_cookie("refresh_token")
-        return {"detail": "Sesión finalizada"}
+
+        redis_client.delete(redis_key)
+
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Token de sesión alterado"
+        )
+
+    response.delete_cookie("refresh_token")
+    return {"detail": "Sesión finalizada"}
 
 
