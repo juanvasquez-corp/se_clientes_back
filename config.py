@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     REDIS_URL: str
     JWT_ISSUER: str
     JWT_AUDIENCE: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 2
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 1
 
     model_config = SettingsConfigDict(
         env_file = ".env",
