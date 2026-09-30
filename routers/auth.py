@@ -1,158 +1,97 @@
-from uuid import UUID
-from datetime import datetime, timedelta, timezone
 import time
-from typing import Optional
-from argon2 import PasswordHasher
-from fastapi import (APIRouter, Cookie, Depends, Header, HTTPException, Response, Request)
-import jwt
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Annotated
+
+from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
+
 from config import settings
-from database import get_db, redis_client
-from models.user import UserModel
-from schemas.user import LoginRequest
+from dependencies import AuthServiceDep, require_browser_intent
+from schemas.user import (
+    CsrfResponse,
+    LoginRequest,
+    MessageResponse,
+    TokenResponse,
+)
+from services.auth import TokenPair
+from services.errors import AuthenticationError
 
-router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
+router = APIRouter(
+    prefix="/api/auth",
+    tags=["Autenticación"],
+    dependencies=[Depends(require_browser_intent)],
+)
 
-ALGORITHM = "HS256"
-
-# Convención OWASP para hasheo de contraseñas
-# 12 MiB - 3 iteraciones - 1 hilo
-PH = PasswordHasher(memory_cost=12288, time_cost=3, parallelism=1)
-
-
-def verify_password_with_pepper(hashed_psswd: str, plain_psswd: str) -> bool:
-    try:
-
-        # Conversión de forma segura a bytes UTF-8 combinado con el Pepper oculto
-        psswd_bytes = f"{plain_psswd}{settings.PEPPER}".encode("utf-8")
-        return PH.verify(hashed_psswd, psswd_bytes)
-    except Exception:
-        return False
+RefreshCookie = Annotated[str | None, Cookie(alias="refresh_token")]
+CsrfHeader = Annotated[str | None, Header(alias="X-CSRF-Token")]
+COOKIE_PATH = "/api/auth"
 
 
-def create_access_token(user_uuid: UUID, email: str, rol: str) -> str:
+def clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        "refresh_token", path=COOKIE_PATH,
+        secure=settings.secure_cookies, httponly=True,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    # Limpia también la cookie raíz emitida por versiones anteriores.
+    response.delete_cookie("refresh_token", path="/")
 
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+
+def token_response(response: Response, pair: TokenPair) -> TokenResponse:
+    response.delete_cookie("refresh_token", path="/")
+    response.set_cookie(
+        "refresh_token", pair.refresh_token,
+        httponly=True, secure=settings.secure_cookies,
+        samesite=settings.COOKIE_SAMESITE, path=COOKIE_PATH,
+        max_age=max(0, pair.session_expires_at - int(time.time())),
+    )
+    return TokenResponse(
+        access_token=pair.access_token, expires_in=pair.expires_in,
+        csrf_token=pair.csrf_token,
     )
 
-    # Implementación de convención OWASP REST:
-    # Inlcusión estrcita de Claims de validación cruzada
-    payload ={
-        "sub": str(user_uuid),
-        "email": email,
-        "rol": rol,
-        "iss": settings.JWT_ISSUER,
-        "aud": settings.JWT_AUDIENCE,
-        "exp": expire
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
-
-def create_refresh_token(user_id: int, user_uuid: UUID) -> str:
-    jti = f"ref_{int(time.time())}_{user_id}"
-    ttl_seconds = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
-    redis_client.setex(
-        name=f"refresh_token:{jti}",
-        time=ttl_seconds,
-        value=str(user_id)
-    )
-
-    payload = {
-        "jti": jti,
-        "sub": str(user_uuid),
-        "iss": settings.JWT_ISSUER,
-        "aud": settings.JWT_AUDIENCE,
-        "exp": datetime.now(timezone.utc) + timedelta(
-            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-        )
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 @router.post("/login")
 async def login(
-    request: Request,
-    login_data: LoginRequest,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-    
-):
-
-    content_type = request.headers.get("content-type", "")
-    if not content_type.startswith("application/json"):
-        raise HTTPException(
-            status_code=415,
-            detail="Se requiere application/json"
-        )
-
-    result = await db.execute(
-        select(UserModel).where(UserModel.email == login_data.email)
+    login_data: LoginRequest, request: Request,
+    response: Response, auth: AuthServiceDep,
+) -> TokenResponse:
+    pair = await auth.login(
+        str(login_data.email), login_data.psswd.get_secret_value(),
+        request.client.host if request.client else "unknown",
     )
-    user = result.scalars().first()
+    return token_response(response, pair)
 
-    if (not user or
-            not verify_password_with_pepper(user.hashed_psswd,
-                                            login_data.psswd) or
-            not user.is_active):
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-    
-    access_token = create_access_token(user.uuid, user.email, user.rol)
-    refresh_token = create_refresh_token(user.id, user.uuid)
 
-    es_produccion = settings.ENVIRONMENT == "production"
-
-    # OWASP REST: Cabeceras de protección de memoria en cliente
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=es_produccion,
-        samesite="strict" if es_produccion else "lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
+@router.post("/refresh")
+async def refresh(
+    response: Response, auth: AuthServiceDep,
+    refresh_token: RefreshCookie = None, csrf_token: CsrfHeader = None,
+) -> TokenResponse:
+    if not refresh_token:
+        raise AuthenticationError()
+    return token_response(
+        response, await auth.refresh(refresh_token, csrf_token)
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/csrf")
+async def csrf(
+    auth: AuthServiceDep, refresh_token: RefreshCookie = None,
+) -> CsrfResponse:
+    if not refresh_token:
+        raise AuthenticationError()
+    return CsrfResponse(csrf_token=await auth.csrf(refresh_token))
+
 
 @router.post("/logout")
 async def logout(
-    response: Response,
-    refresh_token: Optional[str] = Cookie(None)
-):
-    if not refresh_token:
-        raise HTTPException(
-            status_code=401,
-            detail="No hay ninguna sesión activa para cerrar"
-        )
-
-    try:
-        payload = jwt.decode(
-            refresh_token,
-            settings.SECRET_KEY,
-            audience=settings.JWT_AUDIENCE,
-            issuer=settings.JWT_ISSUER,
-            algorithms=[ALGORITHM]
-        )
-        jti = payload.get("jti")
-        redis_key = f"refresh_token:{jti}"
-
-        # Validar token en Redis
-        if not redis_client.get(redis_key):
-            raise HTTPException(
-                status_code=401,
-                detail="Esta sesión ya había sido finalizada previamente"
-            )
-
-        redis_client.delete(redis_key)
-
-    except jwt.PyJWTError:
-        raise HTTPException(
-            status_code=401,
-            detail="Token de sesión alterado"
-        )
-
-    response.delete_cookie("refresh_token")
-    return {"detail": "Sesión finalizada"}
-
-
+    response: Response, auth: AuthServiceDep,
+    refresh_token: RefreshCookie = None, csrf_token: CsrfHeader = None,
+) -> MessageResponse:
+    if refresh_token:
+        try:
+            await auth.logout(refresh_token, csrf_token)
+        except AuthenticationError:
+            # Cerrar una sesión ya finalizada también limpia el navegador.
+            pass
+    clear_refresh_cookie(response)
+    return MessageResponse(detail="Sesión finalizada")
