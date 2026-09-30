@@ -14,3 +14,6 @@ dependencies = [
     "sqlalchemy>=2.0.54",
     "uvicorn>=0.53.0",
 ]
+
+[tool.fastapi]
+entrypoint = "main:app"
