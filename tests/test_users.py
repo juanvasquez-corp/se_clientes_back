@@ -86,6 +86,33 @@ class UserTests(IntegrationCase):
                 async with self.services() as (_, service, _):
                     await operation(service)
 
+    async def test_admin_can_correct_own_cedula_as_administrative_exception(
+        self,
+    ):
+        admin = await self.account()
+        principal = await self.principal(await self.login(admin))
+        changes = {
+            "cedula": "0" * 20,
+            "name": "Updated",
+            "last_name": "Administrator",
+            "phone_number": "1234567890",
+            "email": "updated-admin@example.com",
+        }
+        async with self.services() as (_, service, _):
+            updated = await service.update(
+                principal, admin.uuid, changes, administrative=True
+            )
+        self.assertEqual(updated.cedula, changes["cedula"])
+        self.assertEqual(updated.name, changes["name"])
+        self.assertEqual(updated.last_name, changes["last_name"])
+        self.assertEqual(updated.phone_number, changes["phone_number"])
+        self.assertEqual(updated.email, changes["email"])
+        self.assertEqual(updated.rol, "superadmin")
+        async with self.services() as (_, _, repository):
+            profile = await repository.get(admin.uuid)
+        self.assertEqual(profile.cedula, changes["cedula"])
+        self.assertEqual(profile.email, changes["email"])
+
     async def test_concurrent_admin_deletions_preserve_one_active_admin(self):
         first, second = await self.account(), await self.account()
         one = await self.principal(await self.login(first))
